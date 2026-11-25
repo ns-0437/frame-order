@@ -1,4 +1,9 @@
-FROM node:22-slim
+FROM python:3.11-slim
+
 WORKDIR /app
-COPY package.json order.js ./
-CMD ["node", "order.js", "/frames"]
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY order.py .
+
+CMD ["python", "order.py", "/frames"]
