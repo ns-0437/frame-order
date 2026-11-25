@@ -9,6 +9,11 @@ from PIL import Image
 THUMB_SIZE = (48, 32)  # fixed small size so comparisons are fast and size-invariant
 TIME_BUDGET_SECONDS = 240  # total wall-clock budget, measured from program start
 
+# Above this many frames, the O(n^2) full distance matrix + 2-opt pipeline
+# gets too slow to finish in the time budget, so we switch to a cheaper
+# KD-tree-based greedy construction instead (see fast_greedy_path).
+MAX_FULL_MATRIX_FRAMES = 1500
+
 
 def load_frames(frame_dir):
     names = sorted(f for f in os.listdir(frame_dir) if f.lower().endswith(".png"))
@@ -44,6 +49,69 @@ def nearest_neighbor_path(dist, start):
 
 def path_length(dist, path):
     return float(sum(dist[path[i], path[i + 1]] for i in range(len(path) - 1)))
+
+
+def fast_greedy_path(vectors, deadline):
+    """Greedy nearest-neighbor chain for very large frame counts.
+
+    Avoids ever materializing an O(n^2) distance matrix: uses a KD-tree
+    for nearest-neighbor queries, with lazy deletion (a visited mask plus
+    periodic tree rebuilds) so it stays close to O(n log n) overall
+    instead of O(n^2). No 2-opt refinement is attempted at this scale;
+    a single greedy pass is the best we can afford in the time budget.
+    """
+    from scipy.spatial import cKDTree
+
+    n = vectors.shape[0]
+    visited = np.zeros(n, dtype=bool)
+    remaining = np.arange(n)
+    tree = cKDTree(vectors[remaining])
+
+    current = 0
+    path = [current]
+    visited[current] = True
+    stale = 1  # visited frames counted against the current tree
+
+    for _ in range(n - 1):
+        if time.time() > deadline:
+            # Out of time: append whatever is left in arbitrary order
+            # rather than returning a partial/invalid path.
+            leftovers = np.where(~visited)[0]
+            path.extend(int(i) for i in leftovers)
+            break
+
+        if stale > max(8, len(remaining) // 5):
+            remaining = np.where(~visited)[0]
+            tree = cKDTree(vectors[remaining])
+            stale = 0
+
+        k = 2
+        found = None
+        while found is None:
+            k = min(k, len(remaining))
+            _, idxs = tree.query(vectors[current], k=k)
+            idxs = np.atleast_1d(idxs)
+            for local_idx in idxs:
+                candidate = int(remaining[local_idx])
+                if not visited[candidate]:
+                    found = candidate
+                    break
+            if found is None:
+                if k >= len(remaining):
+                    # Tree is fully stale; rebuild from scratch and retry.
+                    remaining = np.where(~visited)[0]
+                    tree = cKDTree(vectors[remaining])
+                    stale = 0
+                    k = 2
+                else:
+                    k *= 2
+
+        path.append(found)
+        visited[found] = True
+        current = found
+        stale += 1
+
+    return path
 
 
 def two_opt(dist, path, deadline):
@@ -87,17 +155,22 @@ def main():
             print(name)
         return
 
-    dist = pairwise_distances(vectors)
+    if n > MAX_FULL_MATRIX_FRAMES:
+        # Too many frames for an O(n^2) matrix + 2-opt within the time
+        # budget: fall back to a cheaper KD-tree greedy construction.
+        best_path = fast_greedy_path(vectors, deadline)
+    else:
+        dist = pairwise_distances(vectors)
 
-    best_path, best_len = None, None
-    starts = range(n) if n <= 20 else [0, n // 2, n - 1]
-    for s in starts:
-        p = nearest_neighbor_path(dist, s)
-        length = path_length(dist, p)
-        if best_len is None or length < best_len:
-            best_path, best_len = p, length
+        best_path, best_len = None, None
+        starts = range(n) if n <= 20 else [0, n // 2, n - 1]
+        for s in starts:
+            p = nearest_neighbor_path(dist, s)
+            length = path_length(dist, p)
+            if best_len is None or length < best_len:
+                best_path, best_len = p, length
 
-    best_path = two_opt(dist, best_path, deadline)
+        best_path = two_opt(dist, best_path, deadline)
 
     for idx in best_path:
         print(names[idx])

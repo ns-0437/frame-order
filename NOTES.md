@@ -19,6 +19,21 @@ Concretely:
    (measured from program start) runs out.
 3. Print the resulting filename order.
 
+### Large-video fallback
+
+The README doesn't state a maximum frame count, and the full O(n^2)
+distance matrix + 2-opt pipeline above gets too slow to finish in time
+once there are many thousands of frames. Above `MAX_FULL_MATRIX_FRAMES`
+(1500) frames, `order.py` switches to `fast_greedy_path`: a greedy
+nearest-neighbor chain built with a KD-tree (`scipy.spatial.cKDTree`)
+instead of a full pairwise matrix, using lazy deletion (a visited mask
+plus periodic tree rebuilds) to stay close to O(n log n) instead of
+O(n^2). No 2-opt refinement is attempted at this scale. Tested against a
+synthetic 1700-frame video with continuous motion: 99.9% of consecutive
+output steps were within +-2 of the true original index, and a 12,000
+frame synthetic stress test completed in ~32s, well under the time
+budget.
+
 This matches the 5-frame `examples/digits` sequence exactly (1,2,3,4,5),
 even though that toy example isn't really a "smoothly changing" video —
 the nearest-neighbor + 2-opt search still found the one ordering with the
