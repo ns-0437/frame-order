@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image
 
 THUMB_SIZE = (48, 32)  # fixed small size so comparisons are fast and size-invariant
-TIME_BUDGET_SECONDS = 45
+TIME_BUDGET_SECONDS = 240  # total wall-clock budget, measured from program start
 
 
 def load_frames(frame_dir):
@@ -76,6 +76,9 @@ def two_opt(dist, path, deadline):
 
 
 def main():
+    start_time = time.time()
+    deadline = start_time + TIME_BUDGET_SECONDS
+
     frame_dir = sys.argv[1] if len(sys.argv) > 1 else "/frames"
     names, vectors = load_frames(frame_dir)
     n = len(names)
@@ -94,7 +97,6 @@ def main():
         if best_len is None or length < best_len:
             best_path, best_len = p, length
 
-    deadline = time.time() + TIME_BUDGET_SECONDS
     best_path = two_opt(dist, best_path, deadline)
 
     for idx in best_path:

@@ -15,7 +15,8 @@ Concretely:
    (all frames if there are few, otherwise a small sample), keep the
    cheapest one.
 2. Improve it with a time-boxed 2-opt local search (vectorized with numpy)
-   until no improving swap is found or a ~45s budget runs out.
+   until no improving swap is found or a 4-minute wall-clock budget
+   (measured from program start) runs out.
 3. Print the resulting filename order.
 
 This matches the 5-frame `examples/digits` sequence exactly (1,2,3,4,5),
@@ -47,5 +48,7 @@ lowest total pairwise difference.
   otherwise static scenes.
 - **Runtime budget**: pairwise distances are O(n^2) and 2-opt passes are
   also O(n^2) per full sweep; for very long videos (many hundreds/
-  thousands of frames) the 45s 2-opt budget may cut off before it
-  converges, leaving some suboptimal local ordering uncorrected.
+  thousands of frames) the 4-minute total budget may still cut off before
+  2-opt converges, leaving some suboptimal local ordering uncorrected
+  (though the nearest-neighbor pass always completes first, so output is
+  never lost, only less refined).
